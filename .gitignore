@@ -1,0 +1,10 @@
+.cache/
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+*.sqlite
+.DS_Store
+*.log
+docs/paper.pdf
+.env
