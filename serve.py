@@ -49,6 +49,32 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_json_file(self, path: Path) -> None:
+        """Serve cache JSON, scrubbing NaN/Inf so browsers can JSON.parse it."""
+        raw = path.read_text(encoding="utf-8")
+        if "NaN" not in raw and "Infinity" not in raw:
+            self._send_bytes(path.read_bytes(), "application/json; charset=utf-8")
+            return
+        try:
+            payload = json.loads(raw)  # Python accepts NaN tokens
+        except json.JSONDecodeError as exc:
+            self._send_json({"error": f"corrupt cache: {exc}"}, 500)
+            return
+
+        def scrub(value: object) -> object:
+            if isinstance(value, float):
+                if value != value or value in (float("inf"), float("-inf")):
+                    return None
+                return value
+            if isinstance(value, dict):
+                return {k: scrub(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [scrub(v) for v in value]
+            return value
+
+        body = json.dumps(scrub(payload), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        self._send_bytes(body, "application/json; charset=utf-8")
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
@@ -63,7 +89,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not cat.is_file():
                 self._send_json({"error": "index missing; run build_index.py"}, 503)
                 return
-            self._send_bytes(cat.read_bytes(), "application/json; charset=utf-8")
+            self._send_json_file(cat)
             return
 
         if path.startswith("/api/dashboard/"):
@@ -75,7 +101,41 @@ class Handler(SimpleHTTPRequestHandler):
             if not dash.is_file():
                 self._send_json({"error": "dashboard not found", "study": study}, 404)
                 return
-            self._send_bytes(dash.read_bytes(), "application/json; charset=utf-8")
+            self._send_json_file(dash)
+            return
+
+        if path == "/api/compare":
+            compare = self.cache_dir / "compare.json"
+            if not compare.is_file():
+                self._send_json({"error": "compare missing; reindex"}, 404)
+                return
+            self._send_json_file(compare)
+            return
+
+        if path == "/api/judge-validation":
+            jv = self.cache_dir / "judge_validation.json"
+            if not jv.is_file():
+                self._send_json({"error": "judge validation missing"}, 404)
+                return
+            self._send_json_file(jv)
+            return
+
+        if path == "/api/node":
+            study = q.get("study", "main")
+            node_id = q.get("id") or q.get("node_id")
+            if not node_id:
+                self._send_json({"error": "id required"}, 400)
+                return
+            try:
+                conn = trace_api.open_db(self.cache_dir)
+                try:
+                    payload = trace_api.get_node(conn, study, node_id)
+                    status = 404 if payload.get("error") else 200
+                    self._send_json(payload, status)
+                finally:
+                    conn.close()
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, 500)
             return
 
         if path == "/api/nodes":
@@ -203,6 +263,29 @@ def ensure_index(data_root: Path, cache_dir: Path, force: bool) -> None:
     cat = cache_dir / "catalogue.json"
     db = cache_dir / "index.sqlite"
     needs = force or not cat.is_file() or not db.is_file()
+    if not needs and cat.is_file():
+        try:
+            meta = json.loads(cat.read_text(encoding="utf-8"))
+            from build_index import SCHEMA_VERSION
+
+            if int(meta.get("schema_version") or 0) < SCHEMA_VERSION:
+                needs = True
+            exported = data_root / "EXPORTED_AT"
+            if exported.is_file():
+                disk = exported.read_text(encoding="utf-8").strip()
+                if disk and disk != (meta.get("exported_at") or ""):
+                    needs = True
+            # New Gen 6–10 folders: rebuild if cache under-counts manifests.
+            import sqlite3
+
+            n_manifests = sum(1 for _ in (data_root / "runs").rglob("manifest.json"))
+            conn = sqlite3.connect(db)
+            n_nodes = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            conn.close()
+            if n_manifests > int(n_nodes):
+                needs = True
+        except Exception:  # noqa: BLE001
+            needs = True
     if not needs and db.is_file():
         # Rebuild if scores table missing (older cache).
         import sqlite3

@@ -81,3 +81,11 @@ Follow brief §5 over the screenshot’s literal chrome:
 ## Phase 1 status
 
 Indexer + main overview are up. Stopped for look-and-feel feedback before checkpoint / prompt pages.
+
+## Paper revision (2026-11, Gen 10)
+
+New export adds Gen 6–10 (IT seed 0 both arms; base all seeds) and Qwen `results/`. Viewer changes:
+- Reindex picks up late nodes; scores_long supplemented from per-node verdicts for gen>5.
+- Overview: damage-location strip, tracking ρ, late-collapse table, R10/S10/A10 headlines + jailbreaks from nodes when summary lags.
+- New pages: Checkpoints, Compare (cross-study), Judges (validation vs humans).
+- Stale index auto-rebuilds when `EXPORTED_AT` or node count changes (schema v2).

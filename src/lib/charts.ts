@@ -361,3 +361,61 @@ export function resizeChart(chart: uPlot | null, el: HTMLElement): void {
   if (!chart) return;
   chart.setSize({ width: Math.max(280, el.clientWidth), height: chart.height });
 }
+
+/** Overlay one metric across studies for a single arm (mean over seeds). */
+export function mountCrossStudyChart(
+  el: HTMLElement,
+  series: { id: string; label: string; color: string; points: SeriesPoint[] }[],
+  ylab: string,
+): uPlot {
+  el.replaceChildren();
+  const gens = new Set<number>();
+  for (const s of series) for (const p of s.points) gens.add(p.generation);
+  const xs = [...gens].sort((a, b) => a - b);
+  if (xs.length === 0) return emptyMessage(el, "No cross-study series.");
+
+  const data: uPlot.AlignedData = [xs];
+  const uSeries: uPlot.Series[] = [{}];
+  for (const s of series) {
+    const byGen = new Map(s.points.map((p) => [p.generation, p.mean]));
+    data.push(xs.map((g) => byGen.get(g) ?? null));
+    uSeries.push({
+      label: s.label,
+      stroke: s.color,
+      width: 2.25,
+      points: {
+        show: true,
+        size: 6,
+        fill: cssVar("--bg-elevated", "#111"),
+        stroke: s.color,
+        width: 2,
+      },
+    });
+  }
+
+  const width = Math.max(280, el.clientWidth || 480);
+  const ax = axisStyle();
+  return new uPlot(
+    {
+      width,
+      height: 260,
+      pxAlign: false,
+      cursor: { drag: { x: false, y: false } },
+      legend: { show: false },
+      series: uSeries,
+      scales: { x: { time: false } },
+      axes: [
+        {
+          ...ax,
+          label: "generation",
+          incrs: [1],
+          values: (_u, splits) =>
+            splits.map((v) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : "")),
+        },
+        { ...ax, label: ylab, size: 56 },
+      ],
+    },
+    data,
+    el,
+  );
+}

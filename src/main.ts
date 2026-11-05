@@ -7,6 +7,14 @@ import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./styles/main.css";
 import { fetchCatalogue, fetchDashboard } from "./lib/api";
 import type { Catalogue } from "./lib/types";
+import { renderAnalyticsPage } from "./pages/analytics";
+import {
+  parseCheckpointRoute,
+  renderCheckpointsPage,
+  type CheckpointRoute,
+} from "./pages/checkpoints";
+import { renderJudgesPage } from "./pages/judges";
+import { renderLabelsPage } from "./pages/labels";
 import { renderOverviewShell } from "./pages/overview";
 import { parseTraceRoute, renderTracesPage, type TraceRoute } from "./pages/traces";
 
@@ -14,10 +22,13 @@ const THEME_KEY = "safecollapse-theme";
 
 type Route =
   | { kind: "overview"; study: string }
-  | { kind: "traces"; trace: TraceRoute };
+  | { kind: "traces"; trace: TraceRoute }
+  | { kind: "checkpoints"; checkpoint: CheckpointRoute }
+  | { kind: "compare" }
+  | { kind: "judges" }
+  | { kind: "labels" };
 
 function applyTheme(theme: "light" | "dark"): void {
-  // Dark is the default :root palette; light opts in via data-theme="light".
   if (theme === "light") document.documentElement.dataset.theme = "light";
   else delete document.documentElement.dataset.theme;
   try {
@@ -28,7 +39,6 @@ function applyTheme(theme: "light" | "dark"): void {
 }
 
 function initTheme(): "light" | "dark" {
-  // Dark is the default look (RunPod-inspired). Light remains available.
   let theme: "light" | "dark" = "dark";
   try {
     const stored = localStorage.getItem(THEME_KEY);
@@ -41,11 +51,27 @@ function initTheme(): "light" | "dark" {
 }
 
 function parseRoute(catalogue: Catalogue): Route {
+  const raw = location.hash.replace(/^#\/?/, "");
+  if (raw === "compare" || raw.startsWith("compare/")) {
+    return { kind: "compare" };
+  }
+  if (raw === "judges" || raw.startsWith("judges/")) {
+    return { kind: "judges" };
+  }
+  if (raw === "labels" || raw.startsWith("labels/")) {
+    return { kind: "labels" };
+  }
+
+  const checkpoint = parseCheckpointRoute(location.hash);
+  if (checkpoint && catalogue.studies.some((s) => s.id === checkpoint.study)) {
+    return { kind: "checkpoints", checkpoint };
+  }
+
   const trace = parseTraceRoute(location.hash);
   if (trace && catalogue.studies.some((s) => s.id === trace.study)) {
     return { kind: "traces", trace };
   }
-  const raw = location.hash.replace(/^#\/?/, "");
+
   const study = raw.split("/")[0];
   if (study && catalogue.studies.some((s) => s.id === study)) {
     return { kind: "overview", study };
@@ -57,11 +83,14 @@ function parseRoute(catalogue: Catalogue): Route {
   return { kind: "overview", study: primary?.id || catalogue.studies[0]?.id || "main" };
 }
 
-function activeStudy(route: Route): string {
-  return route.kind === "overview" ? route.study : route.trace.study;
+function activeStudy(route: Route): string | null {
+  if (route.kind === "overview") return route.study;
+  if (route.kind === "traces") return route.trace.study;
+  if (route.kind === "checkpoints") return route.checkpoint.study;
+  return null;
 }
 
-function renderShell(app: HTMLElement, catalogue: Catalogue, study: string): HTMLElement {
+function renderShell(app: HTMLElement, catalogue: Catalogue, study: string | null): HTMLElement {
   const primary = catalogue.studies.filter((s) => s.primary && !s.invalid);
   const secondary = catalogue.studies.filter((s) => !s.primary || s.invalid);
 
@@ -84,7 +113,16 @@ function renderShell(app: HTMLElement, catalogue: Catalogue, study: string): HTM
           <div class="nav-label">In study</div>
           <ul class="nav-list">
             <li><button type="button" class="nav-item" data-go="overview">Overview</button></li>
+            <li><button type="button" class="nav-item" data-go="checkpoints">Checkpoints</button></li>
             <li><button type="button" class="nav-item" data-go="traces">Traces</button></li>
+          </ul>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">Analysis</div>
+          <ul class="nav-list">
+            <li><button type="button" class="nav-item" data-go="labels">Labels</button></li>
+            <li><button type="button" class="nav-item" data-go="compare">Compare</button></li>
+            <li><button type="button" class="nav-item" data-go="judges">Judges</button></li>
           </ul>
         </div>
         <div class="sidebar-foot">
@@ -106,9 +144,11 @@ function renderShell(app: HTMLElement, catalogue: Catalogue, study: string): HTM
         ]
           .filter(Boolean)
           .join(" ");
+        const genNote =
+          s.max_generation && s.max_generation > 5 ? ` · g${s.max_generation}` : "";
         return `<li><button type="button" class="${cls}" data-study="${s.id}">${
           s.title || s.id
-        }</button></li>`;
+        }${genNote ? `<span class="nav-meta">${genNote}</span>` : ""}</button></li>`;
       })
       .join("");
   };
@@ -119,13 +159,16 @@ function renderShell(app: HTMLElement, catalogue: Catalogue, study: string): HTM
 }
 
 function syncSubnav(app: HTMLElement, route: Route): void {
-  const overview = route.kind === "overview";
   app.querySelectorAll<HTMLButtonElement>("[data-go]").forEach((btn) => {
     const go = btn.dataset.go;
-    btn.classList.toggle(
-      "active",
-      (go === "overview" && overview) || (go === "traces" && !overview),
-    );
+    const active =
+      (go === "overview" && route.kind === "overview") ||
+      (go === "traces" && route.kind === "traces") ||
+      (go === "checkpoints" && route.kind === "checkpoints") ||
+      (go === "compare" && route.kind === "compare") ||
+      (go === "judges" && route.kind === "judges") ||
+      (go === "labels" && route.kind === "labels");
+    btn.classList.toggle("active", Boolean(active));
   });
 }
 
@@ -146,7 +189,23 @@ async function renderRoute(
     }
     return;
   }
-  await renderTracesPage(main, catalogue, route.trace);
+  if (route.kind === "traces") {
+    await renderTracesPage(main, catalogue, route.trace);
+    return;
+  }
+  if (route.kind === "checkpoints") {
+    await renderCheckpointsPage(main, catalogue, route.checkpoint);
+    return;
+  }
+  if (route.kind === "compare") {
+    await renderAnalyticsPage(main, catalogue);
+    return;
+  }
+  if (route.kind === "labels") {
+    renderLabelsPage(main, catalogue);
+    return;
+  }
+  await renderJudgesPage(main, catalogue);
 }
 
 async function boot(): Promise<void> {
@@ -185,7 +244,7 @@ async function boot(): Promise<void> {
     route = next;
     const study = activeStudy(route);
     app.querySelectorAll<HTMLElement>("[data-study]").forEach((el) => {
-      el.classList.toggle("active", el.dataset.study === study);
+      el.classList.toggle("active", Boolean(study) && el.dataset.study === study);
     });
     syncSubnav(app, route);
     await renderRoute(main, catalogue, route);
@@ -201,9 +260,18 @@ async function boot(): Promise<void> {
 
   app.querySelectorAll<HTMLButtonElement>("[data-go]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const study = activeStudy(route);
-      if (btn.dataset.go === "traces") {
+      const study = activeStudy(route) || "main";
+      const go = btn.dataset.go;
+      if (go === "traces") {
         location.hash = `#/${study}/traces?job=harmbench_test&label=G1&seed=0`;
+      } else if (go === "checkpoints") {
+        location.hash = `#/${study}/checkpoints`;
+      } else if (go === "compare") {
+        location.hash = `#/compare`;
+      } else if (go === "judges") {
+        location.hash = `#/judges`;
+      } else if (go === "labels") {
+        location.hash = `#/labels`;
       } else {
         location.hash = `#/${study}`;
       }
@@ -214,7 +282,7 @@ async function boot(): Promise<void> {
     void navigate(parseRoute(catalogue));
   });
 
-  if (!location.hash) location.hash = `#/${activeStudy(route)}`;
+  if (!location.hash) location.hash = `#/${activeStudy(route) || "main"}`;
   syncSubnav(app, route);
   await renderRoute(main, catalogue, route);
 }

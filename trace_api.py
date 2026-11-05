@@ -57,6 +57,33 @@ def list_nodes(conn: sqlite3.Connection, study: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def get_node(conn: sqlite3.Connection, study: str, node_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM nodes WHERE study = ? AND node_id = ?",
+        (study, node_id),
+    ).fetchone()
+    if not row:
+        return {"error": f"node not found: {node_id}"}
+    data = dict(row)
+    for key, raw_key in [
+        ("stages", "stages_json"),
+        ("metrics", "metrics_json"),
+        ("health", "health_json"),
+        ("train_stats", "train_stats_json"),
+    ]:
+        raw = data.pop(raw_key, None)
+        if raw:
+            try:
+                data[key] = json.loads(raw)
+            except json.JSONDecodeError:
+                data[key] = None
+        else:
+            data[key] = None
+    data["has_train"] = bool(data.get("has_train"))
+    data["has_synthetic"] = bool(data.get("has_synthetic"))
+    return data
+
+
 def available_jobs(conn: sqlite3.Connection, study: str) -> list[str]:
     rows = conn.execute(
         "SELECT DISTINCT job FROM scores WHERE study = ? ORDER BY job",

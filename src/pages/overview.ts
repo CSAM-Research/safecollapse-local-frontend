@@ -7,7 +7,14 @@ import {
 } from "../lib/charts";
 import { armColor, armLabel, fmtInt, fmtPpl, fmtRate } from "../lib/format";
 import { explainLabel, GLOSSARY_BLURB } from "../lib/glossary";
-import type { Catalogue, ConfirmatoryTest, Dashboard } from "../lib/types";
+import type {
+  Catalogue,
+  ConfirmatoryTest,
+  Dashboard,
+  Delta,
+  LateCollapse,
+  Tracking,
+} from "../lib/types";
 
 type OverviewState = {
   metric: string;
@@ -20,8 +27,14 @@ const state: OverviewState = {
 };
 
 function headlineOrder(dash: Dashboard): string[] {
-  const preferred = ["G0", "G1", "R5", "S5", "A5", "R10", "S10"];
+  const preferred = ["G0", "G1", "R5", "S5", "A5", "R10", "S10", "A10"];
   return preferred.filter((k) => dash.headlines[k]);
+}
+
+function signed(v: number | null | undefined, digits = 3): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  const s = v.toFixed(digits);
+  return v > 0 ? `+${s}` : s;
 }
 
 function renderHeadlines(dash: Dashboard): string {
@@ -33,7 +46,8 @@ function renderHeadlines(dash: Dashboard): string {
     .map((label, i) => {
       const h = dash.headlines[label];
       const emphasis = i === 0 ? " emphasis" : "";
-      return `<article class="headline${emphasis}" title="${explainLabel(label).replaceAll('"', "&quot;")}">
+      const late = /^(R|S|A)1[0]$/.test(label) || (h.source === "nodes" && Number(label.slice(1)) > 5);
+      return `<article class="headline${emphasis}${late ? " late" : ""}" title="${explainLabel(label).replaceAll('"', "&quot;")}">
         <div class="headline-label">${label}<span class="hint">${
           label === "G0"
             ? "untouched"
@@ -46,7 +60,7 @@ function renderHeadlines(dash: Dashboard): string {
                   : label.startsWith("A")
                     ? "accumulate"
                     : ""
-        }</span></div>
+        }${h.source === "nodes" ? " · from nodes" : ""}</span></div>
         <div class="headline-metrics">
           <div class="kv"><span>ASR</span><strong>${fmtRate(h.asr)}</strong></div>
           <div class="kv"><span>PPL</span><strong>${fmtPpl(h.perplexity ?? null)}</strong></div>
@@ -56,6 +70,97 @@ function renderHeadlines(dash: Dashboard): string {
       </article>`;
     })
     .join("")}</div>`;
+}
+
+function renderDeltas(deltas: Delta[] | undefined): string {
+  if (!deltas?.length) return "";
+  const show = deltas.filter((d) =>
+    ["G0_G1", "G1_R5", "R5_R10", "R5_S5", "R5_A5"].includes(d.id),
+  );
+  if (!show.length) return "";
+  return `<div class="finding-strip">
+    ${show
+      .map((d) => {
+        const asrFlat = d.delta_asr !== null && Math.abs(d.delta_asr) < 0.03;
+        const pplUp = d.delta_ppl !== null && d.delta_ppl > 0.05;
+        return `<article class="finding">
+          <div class="finding-title">${d.title}</div>
+          <div class="finding-note">${d.note}</div>
+          <div class="finding-metrics">
+            <div class="kv"><span>Δ ASR</span><strong class="${asrFlat ? "flat" : ""}">${signed(d.delta_asr)}</strong></div>
+            <div class="kv"><span>Δ PPL</span><strong class="${pplUp ? "rise" : ""}">${signed(d.delta_ppl, 2)}</strong></div>
+          </div>
+        </article>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderTracking(tracking: Tracking | null | undefined): string {
+  if (!tracking || !tracking.levels) {
+    return `<p class="empty">Tracking (Spearman ASR ↔ PPL) not available.</p>`;
+  }
+  const rho = tracking.levels.rho;
+  const ci =
+    tracking.levels.ci_low !== undefined && tracking.levels.ci_high !== undefined
+      ? ` [${fmtRate(tracking.levels.ci_low, 2)}, ${fmtRate(tracking.levels.ci_high, 2)}]`
+      : "";
+  const weak = rho !== undefined && Math.abs(rho) < 0.4;
+  return `<div class="tracking-card">
+    <div class="tracking-rho">
+      <span class="stat-label">Spearman ρ (levels)</span>
+      <div class="stat-value ${weak ? "flat" : ""}">${fmtRate(rho ?? null, 3)}</div>
+      <div class="page-meta">95% CI${ci} · ${tracking.n_checkpoints ?? "—"} checkpoints · ${tracking.n_seeds ?? "—"} seeds</div>
+    </div>
+    <p class="section-desc">
+      Collapse metrics are not a safety warning: held-out perplexity moves while ASR stays nearly flat.
+      ${
+        tracking.levels_replace !== undefined
+          ? `Replace ρ ${fmtRate(tracking.levels_replace, 3)}.`
+          : ""
+      }
+      ${
+        tracking.levels_subsample !== undefined
+          ? ` Subsample ρ ${fmtRate(tracking.levels_subsample, 3)}.`
+          : ""
+      }
+      ${
+        tracking.levels_accumulate !== undefined
+          ? ` Accumulate ρ ${fmtRate(tracking.levels_accumulate, 3)}.`
+          : ""
+      }
+    </p>
+  </div>`;
+}
+
+function renderLateCollapse(late: LateCollapse | undefined, arms: string[]): string {
+  if (!late?.available) {
+    return `<p class="empty">${late?.note || "No late-collapse checkpoints."}</p>`;
+  }
+  const gens = late.generations || [1, 5, 6, 7, 8, 9, 10];
+  const head = `<tr><th>gen</th>${arms
+    .map(
+      (a) =>
+        `<th class="num" colspan="2" style="color:${armColor(a)}">${armLabel(a)}</th>`,
+    )
+    .join("")}</tr>
+    <tr><th></th>${arms.map(() => `<th class="num">ASR</th><th class="num">PPL</th>`).join("")}</tr>`;
+  const rows = gens
+    .map((g) => {
+      const cells = arms
+        .map((arm) => {
+          const row = (late.arms[arm] || []).find((r) => r.generation === g);
+          return `<td class="num">${fmtRate(row?.asr ?? null)}</td><td class="num">${fmtPpl(row?.perplexity ?? null)}</td>`;
+        })
+        .join("");
+      return `<tr><td>${g}</td>${cells}</tr>`;
+    })
+    .join("");
+  return `<p class="section-desc" style="margin-bottom:0.65rem">${late.note}</p>
+    <div class="table-wrap"><table class="data compact">
+      <thead>${head}</thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
 function renderJailbreaks(dash: Dashboard): string {
@@ -109,8 +214,9 @@ function renderConfirmatory(dash: Dashboard): string {
           : rob
             ? `<span class="pill yes">robust</span>`
             : `<span class="pill no">not robust</span>`;
+      const control = t.control ? ` <span class="page-meta">vs ${t.control}</span>` : "";
       return `<tr>
-        <td>${name}</td>
+        <td>${name}${control}</td>
         <td class="num">${fmtTest(t, isSlope)}</td>
         <td class="num">${pHolm}</td>
         <td>${robPill}</td>
@@ -123,22 +229,101 @@ function renderConfirmatory(dash: Dashboard): string {
   </table></div>`;
 }
 
+type HealthStatus = "ok" | "watch" | "problem";
+
+function healthStatus(h: Dashboard["health"][number]): {
+  status: HealthStatus;
+  lengthRate: number | null;
+  reason: string;
+} {
+  const lengthRate =
+    h.n_completions > 0 ? h.length_hits / h.n_completions : null;
+  if (h.n_errors > 0 || h.n_unparsed > 0) {
+    return {
+      status: "problem",
+      lengthRate,
+      reason: h.n_errors > 0 ? "judge API / parse errors" : "unparsed judge outputs",
+    };
+  }
+  // Truncation is common (~10–25%); only flag the extreme tail.
+  if (lengthRate !== null && lengthRate >= 0.3) {
+    return { status: "watch", lengthRate, reason: "many answers hit the token limit" };
+  }
+  if (h.n_judge_refused >= 5) {
+    return {
+      status: "watch",
+      lengthRate,
+      reason: "secondary judge often refused to grade",
+    };
+  }
+  if (h.n_judge_refused > 0) {
+    return { status: "ok", lengthRate, reason: "a few judge refusals (normal)" };
+  }
+  return { status: "ok", lengthRate, reason: "clean" };
+}
+
 function renderHealth(dash: Dashboard): string {
   if (!dash.health.length) return `<p class="empty">No health rows.</p>`;
-  return `<div class="health-strip">${dash.health
-    .map((h) => {
-      const bad = h.n_errors > 0 || h.n_unparsed > 0;
-      const warn = !bad && (h.n_judge_refused > 0 || h.length_hits > 50);
-      const cls = bad ? "bad" : warn ? "warn" : "";
-      const lengthRate =
-        h.n_completions > 0 ? h.length_hits / h.n_completions : null;
-      return `<div class="health-cell ${cls}">
-        <div class="id">${h.label}${h.seed !== null && h.seed !== undefined ? `·s${h.seed}` : ""}</div>
-        <div class="vals">err ${h.n_errors} · jr ${h.n_judge_refused}<br/>len ${fmtRate(lengthRate, 2)}</div>
-      </div>`;
+
+  const assessed = dash.health.map((h) => ({ h, ...healthStatus(h) }));
+  const nProblem = assessed.filter((a) => a.status === "problem").length;
+  const nWatch = assessed.filter((a) => a.status === "watch").length;
+  const nOk = assessed.length - nProblem - nWatch;
+
+  const summary = `<div class="health-summary">
+    <div class="health-pill ok"><strong>${nOk}</strong> fine</div>
+    <div class="health-pill watch"><strong>${nWatch}</strong> worth a look</div>
+    <div class="health-pill problem"><strong>${nProblem}</strong> real problems</div>
+  </div>
+  <p class="section-desc" style="margin:0.65rem 0 0.85rem">
+    This is a data-quality check, not a safety score. It asks whether judging and generation
+    finished cleanly for each checkpoint. Truncation around 0.10–0.25 is normal for long answers;
+    only ≥0.30 is flagged. A handful of judge refusals (Llama declining to grade) is also normal.
+  </p>`;
+
+  const rows = assessed
+    .map(({ h, status, lengthRate, reason }) => {
+      const seed =
+        h.seed !== null && h.seed !== undefined ? String(h.seed) : "—";
+      const statusLabel =
+        status === "problem" ? "Problem" : status === "watch" ? "Watch" : "Fine";
+      return `<tr class="health-row ${status}">
+        <td><code>${h.label}</code></td>
+        <td class="num">${seed}</td>
+        <td>${h.arm || "—"}</td>
+        <td><span class="pill ${status === "ok" ? "yes" : status === "watch" ? "warn" : "no"}">${statusLabel}</span></td>
+        <td class="num">${h.n_errors}</td>
+        <td class="num">${h.n_judge_refused}</td>
+        <td class="num">${h.n_unparsed}</td>
+        <td class="num">${fmtRate(lengthRate, 2)}</td>
+        <td class="num">${fmtInt(h.n_completions)}</td>
+        <td class="muted">${reason}</td>
+      </tr>`;
     })
-    .join("")}</div>
-    <p class="section-desc" style="margin-top:0.65rem">err = judge errors · jr = judge refusals · len = share of answers hitting the token limit</p>`;
+    .join("");
+
+  return `${summary}
+    <div class="table-wrap scroll"><table class="data sticky health-table">
+      <thead><tr>
+        <th>Checkpoint</th>
+        <th class="num">Seed</th>
+        <th>Arm</th>
+        <th>Status</th>
+        <th class="num">Judge errors</th>
+        <th class="num">Judge refused</th>
+        <th class="num">Unparsed</th>
+        <th class="num">Hit length limit</th>
+        <th class="num">Answers scored</th>
+        <th>Note</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <dl class="health-legend">
+      <div><dt>Judge errors</dt><dd>The judge call failed or returned unusable JSON.</dd></div>
+      <div><dt>Judge refused</dt><dd>The judge model itself declined to grade (usually Llama on a harmful answer). Not a missing file.</dd></div>
+      <div><dt>Unparsed</dt><dd>Classifier / SORRY judge could not parse its own output.</dd></div>
+      <div><dt>Hit length limit</dt><dd>Share of completions that stopped because they reached the max token budget (truncated).</dd></div>
+    </dl>`;
 }
 
 function metricOptions(dash: Dashboard, selected: string): string {
@@ -174,6 +359,7 @@ export function renderOverviewShell(
     dash.incomplete.length > 0
       ? `${dash.incomplete.length} nodes missing core stages`
       : "all nodes have core stages";
+  const maxGen = dash.max_generation ?? 5;
 
   mount.innerHTML = `
     <nav class="crumb">
@@ -185,11 +371,12 @@ export function renderOverviewShell(
     <header class="page-header">
       <div>
         <h1 class="page-title">${dash.title}</h1>
-        <p class="page-meta">${dash.model ?? "—"} · ${dash.n_nodes} checkpoints · seeds ${
+        <p class="page-meta">${dash.model ?? "—"} · ${dash.n_nodes} checkpoints · gens 0–${maxGen} · seeds ${
           dash.seeds.length ? dash.seeds.join(", ") : "—"
         }</p>
       </div>
       <div class="controls">
+        <a class="btn" href="#/compare">Compare studies</a>
         <a class="btn primary" href="#/${dash.study}/traces?job=harmbench_test&label=G1&seed=0">Browse traces</a>
         <span class="page-meta">${catalogue.exported_at ?? "export unknown"} · indexed ${catalogue.built_at}</span>
       </div>
@@ -197,7 +384,7 @@ export function renderOverviewShell(
 
     <div class="glossary">
       <strong>How to read checkpoint labels.</strong> ${GLOSSARY_BLURB}
-      Hover a G0/G1/R5/S5 card for the full definition.
+      <a href="#/labels">Full label map (paper ↔ meaning)</a>
     </div>
 
     ${
@@ -207,15 +394,20 @@ export function renderOverviewShell(
     }
     ${
       !dash.has_results
-        ? `<div class="banner"><strong>No results/ aggregates.</strong> Curves below are computed from per-node metric files.</div>`
+        ? `<div class="banner info"><strong>No paper-side results/ folder for this study.</strong> Charts and headlines below are built from each checkpoint’s metric files instead.</div>`
+        : ""
+    }
+    ${
+      maxGen > 5
+        ? `<div class="banner info"><strong>Late collapse present.</strong> This export includes Gen 6–${maxGen}. Summary.csv still stops at Gen 5; Gen 10 headlines and jailbreaks are averaged from node metrics.</div>`
         : ""
     }
 
     <div class="stat-row">
       <div class="stat"><span class="stat-label">Checkpoints</span><div class="stat-value">${fmtInt(dash.n_nodes)}</div></div>
       <div class="stat"><span class="stat-label">Seeds</span><div class="stat-value">${fmtInt(dash.seeds.length || (dash.n_nodes ? 1 : 0))}</div></div>
+      <div class="stat"><span class="stat-label">Max gen</span><div class="stat-value">${fmtInt(maxGen)}</div></div>
       <div class="stat"><span class="stat-label">Eval prompts</span><div class="stat-value">${fmtInt(prompts)}</div><span class="stat-note">HB+XS+SORRY</span></div>
-      <div class="stat"><span class="stat-label">Primary judge calls</span><div class="stat-value">${fmtInt(catalogue.judge_calls_primary)}</div><span class="stat-note">all studies</span></div>
       <div class="stat"><span class="stat-label">Arms</span><div class="stat-value" style="font-size:0.95rem">${dash.arms.join(" / ") || "—"}</div></div>
       <div class="stat"><span class="stat-label">Completeness</span><div class="stat-value" style="font-size:0.85rem;font-family:var(--font)">${incompleteNote}</div></div>
     </div>
@@ -223,9 +415,20 @@ export function renderOverviewShell(
     <section class="section">
       <div class="section-head">
         <div>
-          <h2 class="section-title">Key checkpoints</h2>
-          <p class="section-desc">ASR from summary.csv (primary judge); PPL and IFEval averaged over seeds.</p>
+          <h2 class="section-title">Where the damage happens</h2>
+          <p class="section-desc">Paper story in one strip: first fine-tune moves ASR; recursion mainly moves perplexity.</p>
         </div>
+      </div>
+      ${renderDeltas(dash.deltas)}
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">Key checkpoints</h2>
+          <p class="section-desc">ASR from summary.csv when present; late gens from node metrics. PPL and IFEval averaged over seeds.</p>
+        </div>
+        <a class="btn" href="#/${dash.study}/checkpoints">All checkpoints</a>
       </div>
       ${renderHeadlines(dash)}
     </section>
@@ -234,7 +437,9 @@ export function renderOverviewShell(
       <div class="section-head">
         <div>
           <h2 class="section-title">Generation curves</h2>
-          <p class="section-desc">Mean over seeds; dashed lines are min–max. G0 and G1 are shared onto both arms.</p>
+          <p class="section-desc">Mean over seeds; dashed lines are min–max. G0 and G1 are shared onto both arms.${
+            maxGen > 5 ? " Includes Gen 6–" + maxGen + "." : ""
+          }</p>
         </div>
         <div class="controls">
           <label for="metric-select">Metric</label>
@@ -263,11 +468,24 @@ export function renderOverviewShell(
             .join("")}</div>
         </div>
         <div class="panel">
-          <h3>Confirmatory tests</h3>
+          <h3>Does compliance track collapse?</h3>
+          <p class="section-desc" style="margin-bottom:0.65rem">Spearman correlation of ASR with held-out perplexity.</p>
+          ${renderTracking(dash.tracking)}
+          <h3 style="margin-top:1.25rem">Confirmatory tests</h3>
           <p class="section-desc" style="margin-bottom:0.65rem">Planned tests on mean StrongREJECT score (primary).</p>
           ${renderConfirmatory(dash)}
         </div>
       </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">Late collapse</h2>
+          <p class="section-desc">Exploratory Gen 1 / 5–10 — perplexity keeps rising in replace; ASR does not follow.</p>
+        </div>
+      </div>
+      ${renderLateCollapse(dash.late_collapse, dash.arms)}
     </section>
 
     <section class="section">
@@ -284,7 +502,7 @@ export function renderOverviewShell(
       <div class="section-head">
         <div>
           <h2 class="section-title">Data health</h2>
-          <p class="section-desc">Silent failures at a glance. Highlighted cells have errors or many truncations.</p>
+          <p class="section-desc">Did generation and judging finish cleanly? Not a safety metric.</p>
         </div>
       </div>
       ${renderHealth(dash)}

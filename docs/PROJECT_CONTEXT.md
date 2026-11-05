@@ -7,8 +7,7 @@ incidents a careful reader must know. The data itself is in `~/Workspace/safecol
 
 Author: Salmaan Suliman (MSc, University of the Witwatersrand); supervisor Dr Devon Jarvis
 (Cognition, Adaptation and Learning Lab). Paper and presentation due Friday 6 November 2026.
-Status as of 4 November 2026: main experiment complete and analysed; late-collapse extensions
-(Generations 6-10) running.
+Status as of 5 November 2026: all experiments complete and analysed.
 
 ---
 
@@ -40,7 +39,7 @@ what we measured (it refuses 0.95 of harmful requests before any fine-tuning).
 | Collapse arm | replace | replace |
 | Data-keeping arm | subsample (same data volume and optimiser steps) | accumulate (t times the data and steps at generation t) |
 | Seeds | 3 (0, 1, 2) | 3 |
-| Generations | 0-5 (+ 6-10 for seed 0; seeds 1-2 in progress) | 0-5 (+ 6-10 in progress) |
+| Generations | 0-5 (+ 6-10 for seed 0) | 0-10 |
 | Chat format | native | Gemma-2-2B-IT's template, added (the base model has none) |
 
 Plus a **replication** on Qwen2.5-3B-Instruct (one seed, IT recipe, Generations 0-5).
@@ -113,7 +112,7 @@ answer judged harmful is an echo.
 ### 3.4 Statistics
 Planned (fixed before the main run, not pre-registered), per category, on the mean StrongREJECT
 score: **H1** R5 > G1 (erosion beyond one fine-tune); **H2** positive slope over G1, R2-R5;
-**H3** S5 (or A5) < R5 (keeping data protects); **RQ4** over-refusal R5 vs G1 (two-sided). Linear
+**H3** S5 (or A5) < R5 (keeping data protects); **H4** over-refusal R5 vs G1 (two-sided). Linear
 mixed model with crossed random intercepts for prompt and seed; Holm correction; 5,000-resample
 bootstrap. A result is "robust" only if it holds under the secondary judge, both ambiguity
 treatments, and judge refusals counted as harmful. Headline (exploratory, reported first): does
@@ -130,8 +129,9 @@ ASR track held-out perplexity across checkpoints (Spearman, levels and within-se
 | Held-out PPL | 3.02 | 2.07 | 2.15 | 2.20 | 2.24 | 2.27 | 2.10 | 2.12 | 2.13 | 2.13 |
 | IFEval | 0.54 | 0.29 | 0.26 | 0.24 | 0.24 | 0.24 | 0.27 | 0.27 | 0.29 | 0.26 |
 
-- H1: -0.001 [-0.025, +0.022], Holm p 0.91 (no erosion beyond one fine-tune; a precise null).
-  H2 and H3 not supported. **RQ4 over-refusal rises**: +0.027 [+0.007, +0.046], Holm p 0.030.
+- H1: -0.001 [-0.044, +0.041], Holm p 0.91 (no erosion beyond one fine-tune; a precise null).
+  H2 and H3 not supported. **H4 over-refusal**: +0.027 [-0.008, +0.061], Holm p 0.030 (modest).
+  Intervals are the planned prompt-and-seed bootstrap; p-values are Wald tests.
 - Tracking: Spearman ASR~PPL +0.01 [-0.61, +0.73] (levels), -0.03 (changes): no association.
 - Jailbreaks (plain / AIM / prefix injection / refusal suppression): G0 0.05 / **0.95** / 0.40 /
   0.38; G1 0.21 / 0.71 / 0.64 / 0.51; R5 0.21 / 0.58 / 0.65 / 0.45; S5 0.23 / 0.68 / 0.72 / 0.47.
@@ -145,7 +145,7 @@ ASR track held-out perplexity across checkpoints (Spearman, levels and within-se
   H3 A5 < R5 -0.086, Holm p < 0.001, **robust** (but accumulate also gets more data and steps).
 - Tracking: Spearman +0.32 [-0.30, +0.60] levels; +0.21 changes: no reliable association.
 
-### 4.3 Qwen replication (valid run `replication2`, seed 0; analysis pending)
+### 4.3 Qwen replication (valid run `replication2`, seed 0)
 Audit-level numbers: ASR G0 0.13, G1 0.31, R5 0.30, S5 0.31; held-out PPL G0 2.62, G1 2.07,
 R5 2.18, S5 2.11.
 
@@ -158,9 +158,9 @@ robust collapse effect on safety-related behaviour is more **over-refusal** of s
 Jailbreak robustness is poor from the start (AIM) and not made worse by collapse.
 
 ### 4.5 In progress (late collapse, exploratory)
-IT seed 0 Gens 6-10 (RunPod); IT seeds 1-2 Gens 6-10 (Wits mscluster, may finish Thursday);
-base Gens 6-10 all seeds (evaluation of Kazdan's published checkpoints). Gen 10 checkpoints get
-the robustness samples and jailbreaks.
+IT seed 0 and base (all seeds) run to Gen 10. Base replace perplexity reaches 7.33 while ASR stays
+at 0.68. IT seeds 1-2 could not run because of a hardware fault. The beam-search run was dropped
+after timing.
 
 ---
 
@@ -222,7 +222,7 @@ names. The viewer should show the data labels and may add the paper names next t
 | `A<t>` (`seed<k>/accumulate/gen<t>`) | Gen t^acc | accumulate arm, generation t (base category; grows with t) |
 
 Hypotheses in paper wording: H1 Gen 5^rep > Gen 1; H2 a positive slope over Gen 1 and replace
-Gens 2-5; H3 Gen 5^sub < Gen 5^rep (base: Gen 5^acc); RQ4 over-refusal at Gen 5^rep
+Gens 2-5; H3 Gen 5^sub < Gen 5^rep (base: Gen 5^acc); H4 over-refusal at Gen 5^rep
 vs Gen 1.
 "S" is always an arm, never a seed.
 

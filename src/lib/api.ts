@@ -1,4 +1,9 @@
-import type { Catalogue, Dashboard } from "./types";
+import type {
+  Catalogue,
+  ComparePayload,
+  Dashboard,
+  JudgeValidation,
+} from "./types";
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -21,6 +26,14 @@ export function fetchCatalogue(): Promise<Catalogue> {
 
 export function fetchDashboard(study: string): Promise<Dashboard> {
   return getJson<Dashboard>(`/api/dashboard/${encodeURIComponent(study)}`);
+}
+
+export function fetchCompare(): Promise<ComparePayload> {
+  return getJson<ComparePayload>("/api/compare");
+}
+
+export function fetchJudgeValidation(): Promise<JudgeValidation> {
+  return getJson<JudgeValidation>("/api/judge-validation");
 }
 
 export type NodesResponse = {
@@ -163,6 +176,10 @@ function toQuery(params: Record<string, string | number | null | undefined>): st
     sp.set(k, String(v));
   }
   return sp.toString();
+}
+
+export function fetchNode(study: string, nodeId: string): Promise<Record<string, unknown>> {
+  return getJson(`/api/node?${toQuery({ study, id: nodeId })}`);
 }
 
 export function fetchNodes(study: string): Promise<NodesResponse> {
