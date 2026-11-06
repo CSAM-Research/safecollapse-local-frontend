@@ -4,6 +4,7 @@ import {
   LABEL_TABLE,
   STUDY_ROWS,
 } from "../lib/glossary";
+import { renderAnswerStory } from "../lib/story";
 import type { Catalogue } from "../lib/types";
 
 function rowsHtml(
@@ -138,7 +139,20 @@ export function renderLabelsPage(mount: HTMLElement, _catalogue: Catalogue): voi
     <section class="section">
       <div class="section-head">
         <div>
-          <h2 class="section-title">Lineage sketch</h2>
+          <h2 class="section-title">How answers change</h2>
+          <p class="section-desc">
+            Same harmful request across generations: refusal → hedge → compliance.
+            The jump is usually already there by G1.
+          </p>
+        </div>
+      </div>
+      ${renderAnswerStory()}
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">Lineage</h2>
           <p class="section-desc">Both arms start from the same G1; only the training data diverges after that.</p>
         </div>
       </div>

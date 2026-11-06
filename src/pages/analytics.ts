@@ -7,6 +7,7 @@ import {
   resizeChart,
 } from "../lib/charts";
 import { armColor, fmtPpl, fmtRate } from "../lib/format";
+import { renderReplacePaperTable } from "../lib/story";
 import type { Catalogue, ComparePayload, SeriesPoint } from "../lib/types";
 
 const STUDY_COLOR: Record<string, string> = {
@@ -73,6 +74,37 @@ function renderHeadlineCompare(payload: ComparePayload): string {
   </table></div>`;
 }
 
+function deltaTakeaway(study: string, id: string, d: { delta_asr: number | null; delta_ppl: number | null }): string {
+  const asr = d.delta_asr;
+  const ppl = d.delta_ppl;
+  if (id === "G0_G1") {
+    return asr !== null && asr > 0.05
+      ? "Most of the ASR jump happens here — ordinary fine-tuning, not recursion."
+      : "Little ASR change at the first fine-tune for this study.";
+  }
+  if (id === "G1_R5") {
+    const asrFlat = asr !== null && Math.abs(asr) < 0.04;
+    const pplUp = ppl !== null && ppl > 0.1;
+    if (asrFlat && pplUp) {
+      return "ASR stays flat while perplexity rises — collapse without further safety loss.";
+    }
+    if (asrFlat) return "ASR stays nearly flat across replace recursion to Gen 5.";
+    return "Replace recursion to Gen 5.";
+  }
+  if (id === "R5_R10") {
+    const asrFlat = asr !== null && Math.abs(asr) < 0.05;
+    const pplUp = ppl !== null && ppl > 0.1;
+    if (study === "base_model" && pplUp) {
+      return "Severe late collapse (PPL keeps climbing) with ASR still flat.";
+    }
+    if (asrFlat && pplUp) {
+      return "Late collapse: perplexity still rises; compliance does not.";
+    }
+    return "Exploratory late-collapse extension.";
+  }
+  return "";
+}
+
 function renderDeltaCompare(payload: ComparePayload): string {
   const ids = ["G0_G1", "G1_R5", "R5_R10"];
   return `<div class="compare-deltas">${payload.studies
@@ -81,12 +113,14 @@ function renderDeltaCompare(payload: ComparePayload): string {
         .map((id) => {
           const d = (s.deltas || []).find((x) => x.id === id);
           if (!d) return "";
+          const takeaway = deltaTakeaway(s.study, id, d);
           return `<div class="finding">
             <div class="finding-title">${d.title}</div>
             <div class="finding-metrics">
               <div class="kv"><span>Δ ASR</span><strong>${signed(d.delta_asr)}</strong></div>
               <div class="kv"><span>Δ PPL</span><strong>${signed(d.delta_ppl, 2)}</strong></div>
             </div>
+            ${takeaway ? `<p class="finding-takeaway">${takeaway}</p>` : ""}
           </div>`;
         })
         .join("");
@@ -161,6 +195,21 @@ export async function renderAnalyticsPage(
     <section class="section">
       <div class="section-head">
         <div>
+          <h2 class="section-title">Replace arm — key results</h2>
+          <p class="section-desc">
+            Gen 1 / 5 / 10 on the collapse arm. Each row has a one-line reading of the result.
+          </p>
+        </div>
+      </div>
+      ${renderReplacePaperTable(
+        payload.studies.find((s) => s.study === "main")?.headlines,
+        payload.studies.find((s) => s.study === "base_model")?.headlines,
+      )}
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
           <h2 class="section-title">Headline numbers</h2>
           <p class="section-desc">Same protocol across categories. ρ is Spearman ASR ↔ held-out perplexity.</p>
         </div>
@@ -172,7 +221,7 @@ export async function renderAnalyticsPage(
       <div class="section-head">
         <div>
           <h2 class="section-title">Damage locations</h2>
-          <p class="section-desc">Δ ASR vs Δ perplexity at the paper’s key transitions.</p>
+          <p class="section-desc">Δ ASR vs Δ perplexity at the paper’s key transitions — with a short reading of each.</p>
         </div>
       </div>
       ${renderDeltaCompare(payload)}

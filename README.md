@@ -7,12 +7,35 @@ export under `~/Workspace/safecollapse-viewer-data/` and serves a small web UI o
 The data export contains model answers to harmful requests. Never commit or publish it.
 The viewer never makes network requests.
 
+![Trace detail in safecollapse — score over generations for a HarmBench prompt](docs/screenshots/trace-detail.png)
+
+*Trace detail for `lillies_cats_feeding_persuasion` (IT / G1), with answers hidden.*
+
 ## Requirements
 
 - Python 3.12+ (stdlib only)
 - Node.js 20+ (to build the front end once)
 
-## Quick start
+## Quick start (Docker — recommended for demos)
+
+On Pop!_OS with Docker installed:
+
+```bash
+./start-docker.sh
+```
+
+Opens [http://127.0.0.1:8765/](http://127.0.0.1:8765/). Stop with `./stop-docker.sh`.
+
+The container mounts `~/Workspace/safecollapse-viewer-data` read-only and reuses
+`./.cache` so startup stays fast after the first index.
+
+Override the data path if needed:
+
+```bash
+SAFECOLLAPSE_DATA=/path/to/safecollapse-viewer-data ./start-docker.sh
+```
+
+## Quick start (local, no Docker)
 
 ```bash
 npm install
@@ -45,14 +68,15 @@ python build_index.py --data /path/to/safecollapse-viewer-data
 
 ## Current status
 
-- **Overview dashboard** per study: headlines, generation curves, ASR×PPL scatter, confirmatory
-  tests, jailbreaks, data health.
-- **Traces browser**: filterable prompt table → open any prompt for the answer (collapsed by
-  default on harmful benchmarks), every judge verdict + raw reply, score formula, and the same
-  prompt across generations for a seed.
+- **Overview** per study: headlines, generation curves, ASR×PPL scatter, confirmatory tests,
+  jailbreaks, late collapse, data health.
+- **Traces**: filterable prompt table → detail with score-over-generations chart, judges, and
+  across-generation answers (harmful answers hideable).
+- **Checkpoints**, **Compare**, **Labels**, **Judges** pages; Docker one-command start.
 
-Still to build: dedicated checkpoint page, synthetic-data browser, judge-validation and
-decisions pages.
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Docs
 

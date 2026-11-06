@@ -7,6 +7,7 @@ import {
 } from "../lib/charts";
 import { armColor, armLabel, fmtInt, fmtPpl, fmtRate } from "../lib/format";
 import { explainLabel, GLOSSARY_BLURB } from "../lib/glossary";
+import { renderAnswerStory, renderReplacePaperTable } from "../lib/story";
 import type {
   Catalogue,
   ConfirmatoryTest,
@@ -72,6 +73,35 @@ function renderHeadlines(dash: Dashboard): string {
     .join("")}</div>`;
 }
 
+function deltaTakeaway(d: Delta): string {
+  if (d.id === "G0_G1") {
+    return d.delta_asr !== null && d.delta_asr > 0.05
+      ? "Most of the ASR jump is here — ordinary fine-tuning, before collapse recursion."
+      : "Little ASR change at the first fine-tune.";
+  }
+  if (d.id === "G1_R5") {
+    const asrFlat = d.delta_asr !== null && Math.abs(d.delta_asr) < 0.04;
+    const pplUp = d.delta_ppl !== null && d.delta_ppl > 0.1;
+    if (asrFlat && pplUp) {
+      return "ASR flat, perplexity up — collapse without further safety loss.";
+    }
+    if (asrFlat) return "ASR stays nearly flat across replace recursion to Gen 5.";
+    return d.note;
+  }
+  if (d.id === "R5_R10") {
+    const asrFlat = d.delta_asr !== null && Math.abs(d.delta_asr) < 0.05;
+    const pplUp = d.delta_ppl !== null && d.delta_ppl > 0.1;
+    if (asrFlat && pplUp) {
+      return "Late collapse: perplexity still rises; compliance does not.";
+    }
+    return "Exploratory late-collapse extension.";
+  }
+  if (d.id === "R5_S5" || d.id === "R5_A5") {
+    return "Matched / workflow contrast for H3 — keeping original data does not clearly lower ASR here.";
+  }
+  return d.note;
+}
+
 function renderDeltas(deltas: Delta[] | undefined): string {
   if (!deltas?.length) return "";
   const show = deltas.filter((d) =>
@@ -85,11 +115,11 @@ function renderDeltas(deltas: Delta[] | undefined): string {
         const pplUp = d.delta_ppl !== null && d.delta_ppl > 0.05;
         return `<article class="finding">
           <div class="finding-title">${d.title}</div>
-          <div class="finding-note">${d.note}</div>
           <div class="finding-metrics">
             <div class="kv"><span>Δ ASR</span><strong class="${asrFlat ? "flat" : ""}">${signed(d.delta_asr)}</strong></div>
             <div class="kv"><span>Δ PPL</span><strong class="${pplUp ? "rise" : ""}">${signed(d.delta_ppl, 2)}</strong></div>
           </div>
+          <p class="finding-takeaway">${deltaTakeaway(d)}</p>
         </article>`;
       })
       .join("")}
@@ -416,10 +446,28 @@ export function renderOverviewShell(
       <div class="section-head">
         <div>
           <h2 class="section-title">Where the damage happens</h2>
-          <p class="section-desc">Paper story in one strip: first fine-tune moves ASR; recursion mainly moves perplexity.</p>
+          <p class="section-desc">
+            Same harmful request across generations: refusal → hedge → compliance.
+            Numbers below: first fine-tune moves ASR; recursion mainly moves perplexity.
+          </p>
         </div>
       </div>
-      ${renderDeltas(dash.deltas)}
+      ${renderAnswerStory()}
+      <div style="margin-top:1rem">${renderDeltas(dash.deltas)}</div>
+      ${
+        dash.study === "main" || dash.study === "base_model"
+          ? `<div style="margin-top:1.15rem">
+              <h3 class="section-title" style="font-size:1rem;margin-bottom:0.45rem">Replace arm — Gen 1 / 5 / 10</h3>
+              ${renderReplacePaperTable(
+                dash.study === "main" ? dash.headlines : undefined,
+                dash.study === "base_model" ? dash.headlines : undefined,
+              )}
+              <p class="section-desc" style="margin-top:0.45rem">
+                Full IT + Base side-by-side is on <a href="#/compare">Compare</a>.
+              </p>
+            </div>`
+          : ""
+      }
     </section>
 
     <section class="section">

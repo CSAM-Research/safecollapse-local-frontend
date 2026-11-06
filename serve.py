@@ -332,24 +332,44 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.host not in ("127.0.0.1", "localhost"):
-        print("error: refusing to bind to non-loopback host", file=sys.stderr)
+    # Default stays loopback. Docker sets SAFECOLLAPSE_DOCKER=1 and binds 0.0.0.0
+    # inside the container so published ports work; the host still reaches it via localhost.
+    docker_mode = os.environ.get("SAFECOLLAPSE_DOCKER") == "1"
+    if docker_mode and args.host in ("127.0.0.1", "localhost"):
+        args.host = "0.0.0.0"
+    if args.host not in ("127.0.0.1", "localhost", "0.0.0.0") or (
+        args.host == "0.0.0.0" and not docker_mode
+    ):
+        print(
+            "error: refusing to bind to non-loopback host "
+            "(set SAFECOLLAPSE_DOCKER=1 only inside the container)",
+            file=sys.stderr,
+        )
         return 1
 
     data_root = args.data.expanduser().resolve()
     cache_dir = args.cache.resolve()
 
+    if not data_root.is_dir():
+        print(f"error: data root not found: {data_root}", file=sys.stderr)
+        return 1
+
     if not args.skip_build:
         ensure_index(data_root, cache_dir, force=args.reindex)
-        ensure_frontend(force=args.rebuild_ui)
+        # In the image the front end is already built; skip vite unless asked.
+        if args.rebuild_ui or not (DIST / "index.html").is_file():
+            ensure_frontend(force=args.rebuild_ui)
     elif not (cache_dir / "catalogue.json").is_file() or not (DIST / "index.html").is_file():
         print("error: index or dist missing; run without --skip-build", file=sys.stderr)
         return 1
 
     handler = partial(Handler, cache_dir=cache_dir, data_root=data_root)
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    url = f"http://{args.host}:{args.port}/"
+    shown = "127.0.0.1" if args.host == "0.0.0.0" else args.host
+    url = f"http://{shown}:{args.port}/"
     print(f"serving {url}")
+    if docker_mode:
+        print("  (docker) open that URL on the host")
     print("  Ctrl+C to stop")
 
     try:

@@ -725,6 +725,103 @@ table.data tr:last-child td {
   white-space: pre;
 }
 
+.answer-story {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  position: relative;
+}
+
+.story-card {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 0.95rem 1rem;
+  min-height: 100%;
+}
+
+.story-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.7rem;
+}
+
+.story-label {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.story-role {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.speech-bubble {
+  position: relative;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  padding: 0.75rem 0.85rem;
+}
+
+.speech-bubble::after {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: var(--bg-muted);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.speech-bubble p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.story-card.tone-refuse .story-label {
+  color: var(--ok);
+}
+
+.story-card.tone-hedge .story-label {
+  color: var(--warn);
+}
+
+.story-card.tone-comply .story-label {
+  color: var(--danger);
+}
+
+.story-card.tone-refuse .speech-bubble {
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--border));
+}
+
+.story-card.tone-hedge .speech-bubble {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+
+.story-card.tone-comply .speech-bubble {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.story-arrow {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .answer-story {
+    grid-template-columns: 1fr;
+  }
+}
+
 .muted {
   color: var(--text-muted);
 }
@@ -1392,6 +1489,30 @@ button:disabled {
 
 .finding-metrics strong.rise {
   color: var(--warn);
+}
+
+.finding-takeaway {
+  margin: 0.55rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.paper-replace-table td.finding-takeaway {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  max-width: 28rem;
+  line-height: 1.4;
+}
+
+.paper-replace-table th:last-child,
+.paper-replace-table td.finding-takeaway {
+  text-align: left;
+}
+
+.paper-results {
+  margin-top: 0.25rem;
 }
 
 .tracking-card {

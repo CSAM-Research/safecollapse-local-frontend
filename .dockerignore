@@ -1,0 +1,15 @@
+.git
+.cache
+dist
+node_modules
+fixtures
+tests
+docs
+*.md
+!README.md
+.env
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+agent-transcripts
+.cursor

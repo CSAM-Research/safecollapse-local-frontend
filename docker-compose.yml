@@ -1,0 +1,33 @@
+# Local presentation stack. Data stays on the host (read-only).
+#
+# Start:  ./start-docker.sh
+# Stop:   docker compose down
+
+services:
+  viewer:
+    build: .
+    image: safecollapse-viewer:local
+    container_name: safecollapse-viewer
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      SAFECOLLAPSE_DOCKER: "1"
+      SAFECOLLAPSE_DATA: /data
+    volumes:
+      # Study export — never written by the viewer
+      - ${SAFECOLLAPSE_DATA:-../safecollapse-viewer-data}:/data:ro
+      # Reuse host index so first open is fast after a local reindex
+      - ./.cache:/app/.cache
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 90s
